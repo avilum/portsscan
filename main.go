@@ -1,22 +1,23 @@
-
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	//"net"
 	"net/http"
+	"net/http/httptrace"
+
 	"crypto/tls"
+	// "net/http"
 	"strings"
 	"sync"
 	"time"
+
 	"golang.org/x/sync/semaphore"
 )
 
 type PortScanner struct {
-	ip   string
-	lock *semaphore.Weighted
+	ip           string
+	lock         *semaphore.Weighted
 	portsMapping map[int]bool
 }
 
@@ -29,24 +30,52 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 	// HTTP session - supported from browsers API
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-		InsecureSkipVerify: true,
+			InsecureSkipVerify: true,
 		},
 	}
 	client := http.Client{
-	    Transport: tr,
-	    Timeout: timeout,
+		Transport: tr,
+		Timeout:   timeout,
+	}
+	target = fmt.Sprintf("http://%s", target)
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		fmt.Print("Failed to initiate request ", err)
 	}
 
-	resp, err := client.Head(fmt.Sprintf("http://%s", target))
-	if err != nil {
-		fmt.Println("(GO error): ", errors.Unwrap(fmt.Errorf("%w", err)))
-		fmt.Println("Client: ", client)
-		// fmt.Println("Go Error: ", err);
+	trace := &httptrace.ClientTrace{
+		DNSDone: func(dnsInfo httptrace.DNSDoneInfo) {
+			fmt.Printf("DNS Info: %+v\n", dnsInfo)
+		},
+		GotConn: func(connInfo httptrace.GotConnInfo) {
+			fmt.Printf("Got Conn: %+v\n", connInfo)
+		},
+		GotFirstResponseByte: func() {
+			fmt.Printf("Got first byte!")
+		},
+	}
 
-		if strings.Contains(err.Error(), "exceeded while awaiting") ||
-		   strings.Contains(err.Error(), "ssl") ||
-		   strings.Contains(err.Error(), "protocol") {
-			fmt.Println(port,"<filtered (open)>")
+	req.Header.Add("js.fetch:mode", "no-cors")
+	// req.Header.Add("Access-Control-Allow-Origin", "0.0.0.0")
+	// req.Header.Add("Access-Control-Allow-Credentials", "true")
+	// req.Header.Add("Access-Control-Allow-Methods", "GET, PUT, POST, HEAD, TRACE, DELETE, PATCH, COPY, HEAD, LINK, OPTIONS")
+	// Access-Control-Request-Method: POST
+	//
+	//resp, err := client.Get(target)
+	fmt.Println("(GO request): ", fmt.Sprintf("%+v", req))
+	//resp, err := client.Do(req)
+
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	//if _, err := http.DefaultTransport.RoundTrip(req); err != nil {
+	if _, err := client.Do(req); err != nil {
+		fmt.Println(err)
+		fmt.Println("(GO error): ", err.Error())
+		if strings.Contains(strings.ToLower(err.Error()), "exceeded while awaiting") ||
+			strings.Contains(strings.ToLower(err.Error()), "ssl") ||
+			strings.Contains(strings.ToLower(err.Error()), "cors") ||
+			strings.Contains(strings.ToLower(err.Error()), "invalid") ||
+			strings.Contains(strings.ToLower(err.Error()), "protocol") {
+			fmt.Println(port, "<filtered (open)>")
 			portsMapping[port] = true
 			return
 		} else {
@@ -55,18 +84,15 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 			return
 		}
 	}
-	
-	defer resp.Body.Close()
-	
-	//conn.Close()
+
+	// defer resp.Body.Close()
 	fmt.Println(port, "<open>")
 	portsMapping[port] = true
 	return
 }
 
-func (ps *PortScanner) Start(f, l int, timeout time.Duration,  portsMapping map[int]bool) {
+func (ps *PortScanner) Start(f, l int, timeout time.Duration, portsMapping map[int]bool) {
 	wg := sync.WaitGroup{}
-	defer wg.Wait()
 	for port := f; port <= l; port++ {
 		ps.lock.Acquire(context.TODO(), 1)
 		wg.Add(1)
@@ -76,18 +102,19 @@ func (ps *PortScanner) Start(f, l int, timeout time.Duration,  portsMapping map[
 			ScanPort(ps.ip, port, timeout, portsMapping)
 		}(port)
 	}
+	time.Sleep(5 * time.Second)
+	wg.Wait()
 }
 
 func main() {
 	portsMapping := make(map[int]bool)
 	ps := &PortScanner{
-		ip:   "0.0.0.0",
-		lock: semaphore.NewWeighted(5),
+		ip:           "0.0.0.0",
+		lock:         semaphore.NewWeighted(5),
 		portsMapping: portsMapping,
 	}
-//	ps.Start(1, 65535, 100*time.Millisecond)
-	ps.Start(4999, 5001, 100 * time.Millisecond, portsMapping)
+	//	ps.Start(1, 65535, 100*time.Millisecond)
+	ps.Start(4999, 5002, 10*time.Millisecond, portsMapping)
 	fmt.Println("Finished. Ports Mapping:")
 	fmt.Println(portsMapping)
 }
-
