@@ -7,9 +7,10 @@ import (
 	"net/http/httptrace"
 
 	"crypto/tls"
-	// "net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall/js"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -24,7 +25,7 @@ type PortScanner struct {
 func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]bool) {
 	target := fmt.Sprintf("%s:%d", ip, port)
 
-	// WASI - supprt for TCP/UDP session - not supported within browsers.
+	// TODO: WASI - add supprt for TCP/UDP session. only HTTP/HTTPS is supported in WASM JS today.
 	//conn, err := net.DialTimeout("tcp", target, timeout)
 
 	// HTTP session - supported from browsers API
@@ -45,36 +46,31 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 
 	trace := &httptrace.ClientTrace{
 		DNSDone: func(dnsInfo httptrace.DNSDoneInfo) {
-			fmt.Printf("DNS Info: %+v\n", dnsInfo)
+			fmt.Println("DNS Info: %+v\n", dnsInfo)
 		},
 		GotConn: func(connInfo httptrace.GotConnInfo) {
-			fmt.Printf("Got Conn: %+v\n", connInfo)
+			fmt.Println("Got Conn: %+v\n", connInfo)
 		},
 		GotFirstResponseByte: func() {
-			fmt.Printf("Got first byte!")
+			fmt.Println("Got first byte!")
 		},
 	}
 
+	// IMPORTANT - enables better HTTP(S) discovery, because many browsers block CORS by default.
 	req.Header.Add("js.fetch:mode", "no-cors")
-	// req.Header.Add("Access-Control-Allow-Origin", "0.0.0.0")
-	// req.Header.Add("Access-Control-Allow-Credentials", "true")
-	// req.Header.Add("Access-Control-Allow-Methods", "GET, PUT, POST, HEAD, TRACE, DELETE, PATCH, COPY, HEAD, LINK, OPTIONS")
-	// Access-Control-Request-Method: POST
-	//
-	//resp, err := client.Get(target)
 	fmt.Println("(GO request): ", fmt.Sprintf("%+v", req))
-	//resp, err := client.Do(req)
 
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
-	//if _, err := http.DefaultTransport.RoundTrip(req); err != nil {
 	if _, err := client.Do(req); err != nil {
 		fmt.Println(err)
 		fmt.Println("(GO error): ", err.Error())
-		if strings.Contains(strings.ToLower(err.Error()), "exceeded while awaiting") ||
-			strings.Contains(strings.ToLower(err.Error()), "ssl") ||
-			strings.Contains(strings.ToLower(err.Error()), "cors") ||
-			strings.Contains(strings.ToLower(err.Error()), "invalid") ||
-			strings.Contains(strings.ToLower(err.Error()), "protocol") {
+		// TODO: Get more exception strings for major browsers
+		errString := strings.ToLower(err.Error())
+		if strings.Contains(errString, "exceeded while awaiting") ||
+			strings.Contains(errString, "ssl") ||
+			strings.Contains(errString, "cors") ||
+			strings.Contains(errString, "invalid") ||
+			strings.Contains(errString, "protocol") {
 			fmt.Println(port, "<filtered (open)>")
 			portsMapping[port] = true
 			return
@@ -85,7 +81,6 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 		}
 	}
 
-	// defer resp.Body.Close()
 	fmt.Println(port, "<open>")
 	portsMapping[port] = true
 	return
@@ -94,14 +89,16 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 func (ps *PortScanner) Start(f, l int, timeout time.Duration, portsMapping map[int]bool) {
 	wg := sync.WaitGroup{}
 	for port := f; port <= l; port++ {
+		// GO in WASM must be SYNC at of today
 		ps.lock.Acquire(context.TODO(), 1)
 		wg.Add(1)
 		go func(port int) {
 			defer ps.lock.Release(1)
-			defer wg.Done()
 			ScanPort(ps.ip, port, timeout, portsMapping)
+			defer wg.Done()
 		}(port)
 	}
+
 	time.Sleep(5 * time.Second)
 	wg.Wait()
 }
@@ -110,11 +107,35 @@ func main() {
 	portsMapping := make(map[int]bool)
 	ps := &PortScanner{
 		ip:           "0.0.0.0",
-		lock:         semaphore.NewWeighted(5),
+		lock:         semaphore.NewWeighted(10),
 		portsMapping: portsMapping,
 	}
-	//	ps.Start(1, 65535, 100*time.Millisecond)
-	ps.Start(4999, 5002, 10*time.Millisecond, portsMapping)
+
+	// TODO: Enable port range input
+	// ps.Start(1, 65535, 10*time.Millisecond, portsMapping)
+
+	document := js.Global().Get("document")
+	documentTitle := document.Call("createElement", "h1")
+	documentTitle.Set("innerText", "WebAssembly TCP Port Scanner")
+	document.Get("body").Call("appendChild", documentTitle)
+	placeHolder := document.Call("createElement", "h3")
+	placeHolder.Set("innerText", "Scanning...")
+	document.Get("body").Call("appendChild", placeHolder)
+
+	ps.Start(50800, 50900, 1000*time.Millisecond, portsMapping)
 	fmt.Println("Finished. Ports Mapping:")
-	fmt.Println(portsMapping)
+
+	var openPorts []string
+	for k, v := range portsMapping {
+		if v == true {
+			openPorts = append(openPorts, strconv.Itoa(k))
+		}
+	}
+	fmt.Println("Scanned Ports: ", portsMapping)
+	fmt.Println("Open Ports", portsMapping)
+
+	placeHolder.Set("innerText", "Open Ports:")
+	openPortsParagraph := document.Call("createElement", "p")
+	openPortsParagraph.Set("innerText", strings.Join(openPorts, ","))
+	document.Get("body").Call("appendChild", openPortsParagraph)
 }
