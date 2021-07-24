@@ -86,10 +86,10 @@ func ScanPort(ip string, port int, timeout time.Duration, portsMapping map[int]b
 	return
 }
 
-func (ps *PortScanner) Start(f, l int, timeout time.Duration, portsMapping map[int]bool) {
+func (ps *PortScanner) Start(f int, l int, timeout time.Duration, portsMapping map[int]bool) {
 	wg := sync.WaitGroup{}
 	for port := f; port <= l; port++ {
-		// GO in WASM must be SYNC at of today
+		// GO in WASM must be SYNC as of today
 		ps.lock.Acquire(context.TODO(), 1)
 		wg.Add(1)
 		go func(port int) {
@@ -113,7 +113,6 @@ func main() {
 
 	// TODO: Enable port range input
 	// ps.Start(1, 65535, 10*time.Millisecond, portsMapping)
-
 	document := js.Global().Get("document")
 	documentTitle := document.Call("createElement", "h1")
 	documentTitle.Set("innerText", "WebAssembly TCP Port Scanner")
@@ -122,20 +121,21 @@ func main() {
 	placeHolder.Set("innerText", "Scanning...")
 	document.Get("body").Call("appendChild", placeHolder)
 
+	// Edit the ports,
 	ps.Start(50800, 50900, 1000*time.Millisecond, portsMapping)
 	fmt.Println("Finished. Ports Mapping:")
 
 	var openPorts []string
 	for k, v := range portsMapping {
 		if v == true {
-			openPorts = append(openPorts, strconv.Itoa(k))
+			portString := strconv.Itoa(k)
+			openPorts = append(openPorts, portString)
+			openPortsParagraph := document.Call("createElement", "li")
+			openPortsParagraph.Set("innerText", portString)
+			document.Get("body").Call("appendChild", openPortsParagraph)
 		}
 	}
 	fmt.Println("Scanned Ports: ", portsMapping)
 	fmt.Println("Open Ports", portsMapping)
-
 	placeHolder.Set("innerText", "Open Ports:")
-	openPortsParagraph := document.Call("createElement", "p")
-	openPortsParagraph.Set("innerText", strings.Join(openPorts, ","))
-	document.Get("body").Call("appendChild", openPortsParagraph)
 }

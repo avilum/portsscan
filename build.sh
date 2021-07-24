@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# MacOS compatible
 export GOPATH=/Users/$USER/go
 GOOS=js GOARCH=wasm go build -o main.wasm
 
