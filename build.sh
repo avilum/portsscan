@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# MacOS compatible
-export GOPATH=/Users/$USER/go
+
+# Export the go binary
+# export GOPATH=/Users/$USER/go
+
+cp $(go env GOROOT)/misc/wasm/wasm_exec.js .
 GOOS=js GOARCH=wasm go build -o main.wasm
 
 
