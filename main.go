@@ -122,7 +122,7 @@ func main() {
 	document.Get("body").Call("appendChild", placeHolder)
 
 	// Edit the ports,
-	ps.Start(50800, 50900, 1000*time.Millisecond, portsMapping)
+	ps.Start(1, 10000, 1000*time.Millisecond, portsMapping)
 	fmt.Println("Finished. Ports Mapping:")
 
 	var openPorts []string
