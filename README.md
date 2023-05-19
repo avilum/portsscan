@@ -2,7 +2,7 @@
 Written in Go with target WASM/WASI.<br>
 
 ## Demo:
-http://ports.sh/
+Watch the live demo on <a href="http://ports.sh/">ports.sh</a>
 
 ## QuickStart
 The WASM main function scans all the open ports in the specified range (see <code>main.go</code>), via 0.0.0.0 with no-cors fetch mode in Javascript level.<br>
